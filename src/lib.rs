@@ -60,6 +60,18 @@ pub mod definitions;
 pub mod tone;
 pub mod syllable_engine;
 
+// Smart features
+#[cfg(feature = "std")]
+pub mod validation;
+#[cfg(feature = "std")]
+pub mod abbreviation;
+#[cfg(feature = "std")]
+pub mod prediction;
+#[cfg(feature = "std")]
+pub mod codeswitching;
+#[cfg(feature = "std")]
+pub mod smart_engine;
+
 pub use engine::{Engine, InputMethod};
 pub use transform::{transform_buffer, transform_buffer_with_method};
 
@@ -69,6 +81,17 @@ pub use action::{Action, Transformation};
 pub use definitions::{TELEX, VNI, lookup_actions};
 pub use tone::{find_tone_position, apply_tone as apply_syllable_tone, remove_tone as remove_syllable_tone, apply_modification, remove_modification};
 pub use syllable_engine::SyllableEngine;
+
+#[cfg(feature = "std")]
+pub use validation::{validate_syllable, is_valid_vietnamese, suggest_corrections, ValidationResult};
+#[cfg(feature = "std")]
+pub use abbreviation::Abbreviations;
+#[cfg(feature = "std")]
+pub use prediction::Predictor;
+#[cfg(feature = "std")]
+pub use codeswitching::CodeSwitcher;
+#[cfg(feature = "std")]
+pub use smart_engine::SmartEngine;
 
 #[cfg(feature = "std")]
 pub mod repl;
