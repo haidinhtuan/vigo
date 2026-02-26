@@ -18,11 +18,18 @@ arboard = { version = "3.4", optional = true }
 [dev-dependencies]
 criterion = "0.5"
 
+[build-dependencies]
+cbindgen = "0.26"
+
 [features]
 default = ["std", "tui"]
 std = []
 heapless = ["dep:heapless"]
 tui = ["dep:crossterm", "dep:arboard"]
+ffi = ["std"]
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "vigo"

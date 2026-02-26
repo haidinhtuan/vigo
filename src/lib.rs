@@ -75,3 +75,6 @@ pub mod repl;
 
 #[cfg(feature = "tui")]
 pub mod tui;
+
+#[cfg(feature = "ffi")]
+pub mod ffi;

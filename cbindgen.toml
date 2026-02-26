@@ -1,0 +1,10 @@
+language = "C"
+include_guard = "VIGO_H"
+tab_width = 4
+style = "both"
+
+[export]
+include = ["VigoEngine"]
+
+[export.rename]
+"VigoEngine" = "vigo_engine_t"
