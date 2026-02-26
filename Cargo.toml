@@ -1,0 +1,31 @@
+[package]
+name = "vigo"
+version = "0.1.0"
+edition = "2021"
+description = "A fast, ergonomic Vietnamese input method engine (Telex, VNI) for Rust"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/user/vigo"
+keywords = ["vietnamese", "ime", "telex", "vni", "input-method"]
+categories = ["text-processing", "no-std::no-alloc"]
+
+[dependencies]
+heapless = { version = "0.8", optional = true }
+smallvec = "1.13"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[features]
+default = ["std"]
+std = []
+heapless = ["dep:heapless"]
+
+[[bin]]
+name = "vigo"
+path = "src/main.rs"
+required-features = ["std"]
+
+[[bench]]
+name = "benchmark"
+harness = false
