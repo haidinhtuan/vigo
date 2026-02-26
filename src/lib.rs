@@ -72,3 +72,6 @@ pub use syllable_engine::SyllableEngine;
 
 #[cfg(feature = "std")]
 pub mod repl;
+
+#[cfg(feature = "tui")]
+pub mod tui;

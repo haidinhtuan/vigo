@@ -12,14 +12,17 @@ categories = ["text-processing", "no-std::no-alloc"]
 [dependencies]
 heapless = { version = "0.8", optional = true }
 smallvec = "1.13"
+crossterm = { version = "0.27", optional = true }
+arboard = { version = "3.4", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
 
 [features]
-default = ["std"]
+default = ["std", "tui"]
 std = []
 heapless = ["dep:heapless"]
+tui = ["dep:crossterm", "dep:arboard"]
 
 [[bin]]
 name = "vigo"

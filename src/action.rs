@@ -73,6 +73,15 @@ pub enum InputMethod {
     Vni,
 }
 
+impl From<crate::transform::InputMethod> for InputMethod {
+    fn from(m: crate::transform::InputMethod) -> Self {
+        match m {
+            crate::transform::InputMethod::Telex => InputMethod::Telex,
+            crate::transform::InputMethod::Vni => InputMethod::Vni,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

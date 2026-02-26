@@ -12,7 +12,8 @@ fn print_help() {
     println!("    vigo [OPTIONS] [COMMAND]");
     println!();
     println!("COMMANDS:");
-    println!("    repl              Interactive REPL mode (default)");
+    println!("    tui               Standalone input mode (default)");
+    println!("    repl              Interactive REPL mode");
     println!("    batch             Transform stdin line by line");
     println!("    transform <text>  Transform a single text");
     println!();
@@ -23,8 +24,9 @@ fn print_help() {
     println!("    -V, --version     Print version");
     println!();
     println!("EXAMPLES:");
-    println!("    vigo                      # Start interactive REPL");
-    println!("    vigo --vni repl           # Start REPL with VNI");
+    println!("    vigo                      # Start standalone TUI");
+    println!("    vigo --vni tui            # TUI with VNI");
+    println!("    vigo repl                 # Start interactive REPL");
     println!("    vigo transform \"vieetj\"   # Transform text");
     println!("    echo \"chaof\" | vigo batch # Batch transform");
 }
@@ -37,7 +39,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     
     let mut method = InputMethod::Telex;
-    let mut command = "repl";
+    let mut command = "tui";
     let mut text: Option<&str> = None;
     
     let mut i = 1;
@@ -57,6 +59,9 @@ fn main() {
             "--vni" => {
                 method = InputMethod::Vni;
             }
+            "tui" => {
+                command = "tui";
+            }
             "repl" => {
                 command = "repl";
             }
@@ -70,7 +75,7 @@ fn main() {
                     text = Some(&args[i]);
                 }
             }
-            arg if !arg.starts_with('-') && command == "repl" => {
+            arg if !arg.starts_with('-') && (command == "tui" || command == "repl") => {
                 // Treat as transform command with text
                 command = "transform";
                 text = Some(&args[i]);
@@ -85,6 +90,18 @@ fn main() {
     }
     
     match command {
+        #[cfg(feature = "tui")]
+        "tui" => {
+            if let Err(e) = vigo::tui::run(method.into()) {
+                eprintln!("TUI error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        #[cfg(not(feature = "tui"))]
+        "tui" => {
+            eprintln!("TUI not available. Falling back to REPL.");
+            vigo::repl::run(method);
+        }
         "repl" => {
             vigo::repl::run(method);
         }

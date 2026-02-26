@@ -10,6 +10,7 @@ use crate::tone::{apply_modification, apply_tone, remove_modification, remove_to
 
 /// History entry for undo support.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct HistoryEntry {
     /// The key that was pressed
     key: char,
