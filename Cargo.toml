@@ -17,6 +17,8 @@ arboard = { version = "3.4", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
+vi = { path = "references/vi-rs" }
+uvie = { path = "references/uvie-rs" }
 
 [build-dependencies]
 cbindgen = "0.26"
@@ -38,4 +40,12 @@ required-features = ["std"]
 
 [[bench]]
 name = "benchmark"
+harness = false
+
+[[bench]]
+name = "vs_vi_rs"
+harness = false
+
+[[bench]]
+name = "vs_uvie_rs"
 harness = false

@@ -15,15 +15,81 @@ Most Vietnamese input engines (unikey, bamboo, OpenKey) are written in C/C++ or 
 
 ## Performance
 
-Benchmarked with Criterion on the phrase "Thủ tướng Chính phủ Việt Nam" (5 words, 28 keystrokes):
+At 60 WPM, one keystroke arrives every ~100,000 µs. All engines below finish well within that budget.
 
-| Engine | Time | Description |
-|--------|------|-------------|
-| SyllableEngine | ~28 µs | Core engine used by fcitx5 addon |
+### Vigo vs vi-rs (Rust, Criterion)
+
+Batch transform — full string in one call:
+
+| Input | Vigo | vi-rs | Speedup |
+|-------|------|-------|---------|
+| simple word (`vieetj`) | 421 ns | 2,263 ns | **5.4x** |
+| medium word (`thuwowngf`) | 613 ns | 4,020 ns | **6.6x** |
+| short sentence (2 words) | 654 ns | 2,423 ns | **3.7x** |
+| medium sentence (8 words) | 3.2 µs | 14.1 µs | **4.4x** |
+| long sentence (24 words) | 9.6 µs | 44.1 µs | **4.6x** |
+
+Incremental — character-by-character engine:
+
+| Input | Vigo SyllableEngine | vi-rs IncrementalBuffer |
+|-------|-------------------|------------------------|
+| simple word | **1.3 µs** | 2.2 µs |
+| medium word | **2.0 µs** | 3.8 µs |
+| medium sentence | 29 µs | **13.5 µs** |
+| long sentence | 164 µs | **41.8 µs** |
+
+> Vigo's `SyllableEngine` rebuilds the full output string on every keystroke (needed for IME preedit display), while vi-rs maintains an incremental cache. This accounts for the sentence-length gap; single-word performance is where the core algorithm comparison is fair.
+
+### Vigo vs uvie-rs (Rust, Criterion)
+
+Incremental feed — both engines use a `feed(char)` API, direct comparison:
+
+| Input | Vigo FastEngine | Vigo SyllableEngine | uvie-rs |
+|-------|----------------|-------------------|---------|
+| simple word (`vieetj`) | 375 ns | 1.64 µs | **280 ns** |
+| medium word (`thuwowngf`) | 839 ns | 1.98 µs | **572 ns** |
+| short sentence (2 words) | 659 ns | 2.71 µs | **322 ns** |
+| medium sentence (8 words) | **20.4 µs** | 32.8 µs | 1.80 µs |
+| long sentence (24 words) | **85.7 µs** | 169 µs | 5.42 µs |
+
+FastEngine is 2–4x faster than SyllableEngine. uvie-rs is still faster for single-word inputs (~1.3–2x); FastEngine closes the gap but rebuilds the full output each keystroke rather than maintaining incremental caches.
+
+Batch transform (Vigo `transform_buffer` vs uvie-rs feed loop):
+
+| Input | Vigo | uvie-rs | uvie faster by |
+|-------|------|---------|----------------|
+| simple word | 423 ns | 267 ns | **1.6x** |
+| medium word | 628 ns | 520 ns | **1.2x** |
+| complex word (`nghieeeng`) | **229 ns** | 434 ns | 0.5x (Vigo wins) |
+| short sentence | 639 ns | 291 ns | **2.2x** |
+| medium sentence | 3.14 µs | 1.69 µs | **1.9x** |
+| long sentence | 9.55 µs | 5.31 µs | **1.8x** |
+
+> `FastEngine` uses a zero-allocation, stack-only render pipeline (32-byte raw buffer, 128-byte UTF-8 output). Both FastEngine and uvie-rs have zero per-keystroke heap allocations. uvie-rs is faster for multi-word inputs because it maintains per-syllable incremental caches; FastEngine and SyllableEngine both rebuild from the full raw input on every keystroke. In batch mode the gap between Vigo and uvie-rs narrows to ~1.5–2x.
+
+### Vigo vs Unikey (C++, 100k iterations)
+
+Vigo is called through C FFI (`libvigo.so`); Unikey uses its native C++ API.
+
+| Input | Vigo | Unikey | Ratio |
+|-------|------|--------|-------|
+| simple word (`vieetj`) | 1.18 µs | 0.16 µs | 7.4x |
+| two words | 1.51 µs | 0.18 µs | 8.4x |
+| medium (5 words) | 4.55 µs | 0.60 µs | 7.5x |
+| long sentence (13 words) | 10.71 µs | 1.56 µs | 6.9x |
+
+> Unikey's C++ engine is ~7x faster than Vigo through C FFI. This is expected — Unikey uses in-place buffer mutation with zero allocations, while Vigo's FFI path involves engine creation, string allocation, and UTF-8 encoding per commit. Both are far below the 100,000 µs keystroke budget.
+
+### Internal engine comparison
+
+| Engine | Medium sentence | Description |
+|--------|----------------|-------------|
 | Legacy Engine | ~15 µs | First-generation table-lookup engine |
-| SmartEngine | ~263 µs | Full pipeline with validation + prediction |
+| FastEngine | ~20 µs | Zero-allocation, stack-only CVC engine |
+| SyllableEngine | ~33 µs | CVC-based engine used by fcitx5 addon |
+| SmartEngine | ~277 µs | Full pipeline with validation + prediction |
 
-For comparison, a single keystroke at 60 WPM arrives every ~100,000 µs. The engine processes an entire sentence in a fraction of one keystroke interval.
+Run benchmarks: `cargo bench --bench vs_vi_rs`, `cargo bench --bench vs_uvie_rs`, or `cargo bench --bench benchmark`
 
 ## Architecture
 
@@ -34,6 +100,7 @@ src/
 ├── definitions.rs       # Telex and VNI rule tables
 ├── tone.rs              # Tone placement following Vietnamese grammar rules
 ├── syllable_engine.rs   # Main engine: feed/backspace/commit with undo history
+├── fast_engine.rs       # Zero-allocation engine: stack-only buffers, no std
 ├── transform.rs         # Stateless batch transformation
 ├── validation.rs        # Vietnamese syllable validation
 ├── prediction.rs        # Next-word prediction
