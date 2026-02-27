@@ -116,7 +116,7 @@ fn bench_incremental(c: &mut Criterion) {
             },
         );
 
-        // Vigo FastEngine (zero-allocation)
+        // Vigo FastEngine (zero-allocation, commit on space like uvie-rs)
         group.bench_with_input(
             BenchmarkId::new("vigo_fast", name),
             input,
@@ -125,7 +125,12 @@ fn bench_incremental(c: &mut Criterion) {
                 b.iter(|| {
                     engine.clear();
                     for ch in input.chars() {
-                        let _ = engine.feed(ch);
+                        if ch == ' ' {
+                            black_box(engine.output().len());
+                            engine.clear();
+                        } else {
+                            let _ = engine.feed(ch);
+                        }
                     }
                     black_box(engine.output().len())
                 })
