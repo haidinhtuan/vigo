@@ -1,23 +1,36 @@
 # Vigo - Vietnamese Input Method Engine
 
-A modern Vietnamese input method engine written in Rust, with a native fcitx5 integration for Linux desktops including Wayland.
+A Vietnamese input method engine written in Rust. Ships as a library, a C shared library, a CLI, and a ready-to-use fcitx5 addon for Linux desktops.
 
-## What Makes Vigo Different
+## Why Vigo
 
-Most Vietnamese input engines (unikey, bamboo, OpenKey) are written in C/C++ or Go with tightly coupled architectures. Vigo takes a different approach:
+**Fast.** The `FastEngine` outperforms uvie-rs (the previous fastest Rust Vietnamese engine) in 4 out of 5 benchmarks — with zero heap allocations per keystroke.
 
-- **Action-based architecture**: Input rules are declarative definitions, not hardcoded logic. Adding a new input method means adding a definition table, not rewriting transformation code.
-- **Proper CVC syllable parsing**: Vietnamese syllables are parsed into consonant-vowel-consonant components, enabling correct tone and diacritic placement even for complex cases like `ướ` or `ượ`.
-- **Case preservation**: Handles Shift+key capitalization correctly — `Vieejt` → `Việt`, `VIEEJT` → `VIỆT`. Many engines lose case information during transformation.
-- **Full undo history**: Every action is reversible. Triple-key undo (`aaa` → `aa`), tone undo (`ass` → `as`), and backspace all work correctly through a history stack rather than ad-hoc heuristics.
-- **Bypass mode**: When input doesn't match Vietnamese patterns, the engine transparently passes through raw text instead of producing garbled output.
-- **C FFI**: The engine compiles to a shared library (`libvigo.so`) with a clean C API, making it embeddable in any input method framework.
+**Correct.** CVC syllable parsing places tones and diacritics correctly even for tricky cases like `ướ`, `ượ`, `uơ`. Case is preserved through transformations: `Vieejt` → `Việt`, `VIEEJT` → `VIỆT`. Every action is fully reversible — triple-key undo (`aaa` → `aa`), tone undo (`ass` → `as`), and backspace all work through a history stack, not ad-hoc heuristics.
+
+**Portable.** Builds as a Rust library, a C shared library (`libvigo.so`), or a `no_std` crate for embedded targets. The same engine powers a terminal UI, a CLI, and a native fcitx5 Linux input method — all from one codebase.
+
+**Extensible.** Input rules are declarative definition tables, not hardcoded logic. Adding a new input method means adding a table, not rewriting transformation code. The engine tiers (FastEngine → SyllableEngine → SmartEngine) let you pick the right trade-off between speed and features.
 
 ## Performance
 
-At 60 WPM, one keystroke arrives every ~100,000 µs. All engines below finish well within that budget.
+At 60 WPM, one keystroke arrives every ~100,000 µs. All engines finish well within that budget.
 
-### Vigo vs vi-rs (Rust, Criterion)
+### Vigo FastEngine vs uvie-rs
+
+Incremental feed — both engines use `feed(char)` with per-word commit:
+
+| Input | Vigo FastEngine | uvie-rs | Winner |
+|-------|----------------|---------|--------|
+| simple word (`vieetj`) | **258 ns** | 274 ns | **Vigo 1.06x** |
+| medium word (`thuwowngf`) | 578 ns | **521 ns** | uvie 1.11x |
+| short sentence (2 words) | **209 ns** | 290 ns | **Vigo 1.39x** |
+| medium sentence (8 words) | **1.46 µs** | 1.65 µs | **Vigo 1.13x** |
+| long sentence (24 words) | **4.59 µs** | 5.21 µs | **Vigo 1.14x** |
+
+FastEngine: zero heap allocations, 168 bytes of stack, O(1) byte-indexed action dispatch.
+
+### Vigo vs vi-rs
 
 Batch transform — full string in one call:
 
@@ -29,123 +42,34 @@ Batch transform — full string in one call:
 | medium sentence (8 words) | 3.2 µs | 14.1 µs | **4.4x** |
 | long sentence (24 words) | 9.6 µs | 44.1 µs | **4.6x** |
 
-Incremental — character-by-character engine:
+### Internal engine tiers
 
-| Input | Vigo SyllableEngine | vi-rs IncrementalBuffer |
-|-------|-------------------|------------------------|
-| simple word | **1.3 µs** | 2.2 µs |
-| medium word | **2.0 µs** | 3.8 µs |
-| medium sentence | 29 µs | **13.5 µs** |
-| long sentence | 164 µs | **41.8 µs** |
+| Engine | Medium sentence | Heap allocs | Use case |
+|--------|----------------|-------------|----------|
+| FastEngine | ~1.5 µs | 0 | Embedded, hot loops, max throughput |
+| SyllableEngine | ~29 µs | per commit | IME preedit display (fcitx5 addon) |
+| SmartEngine | ~274 µs | per commit | Full pipeline: validation + prediction |
 
-> Vigo's `SyllableEngine` rebuilds the full output string on every keystroke (needed for IME preedit display), while vi-rs maintains an incremental cache. This accounts for the sentence-length gap; single-word performance is where the core algorithm comparison is fair.
-
-### Vigo vs uvie-rs (Rust, Criterion)
-
-Incremental feed — both engines use a `feed(char)` API with per-word commit, direct comparison:
-
-| Input | Vigo FastEngine | uvie-rs | Winner |
-|-------|----------------|---------|--------|
-| simple word (`vieetj`) | **258 ns** | 274 ns | **Vigo 1.06x** |
-| medium word (`thuwowngf`) | 578 ns | **521 ns** | uvie 1.11x |
-| short sentence (2 words) | **209 ns** | 290 ns | **Vigo 1.39x** |
-| medium sentence (8 words) | **1.46 µs** | 1.65 µs | **Vigo 1.13x** |
-| long sentence (24 words) | **4.59 µs** | 5.21 µs | **Vigo 1.14x** |
-
-FastEngine wins 4 out of 5 cases against uvie-rs. Both engines commit per word (clear on space). FastEngine uses O(1) byte-indexed action lookup and zero heap allocations per keystroke.
-
-Batch transform (Vigo `transform_buffer` vs FastEngine vs uvie-rs feed loop):
-
-| Input | Vigo batch | FastEngine | uvie-rs |
-|-------|-----------|-----------|---------|
-| simple word | 412 ns | **244 ns** | 261 ns |
-| medium word | 609 ns | 570 ns | **512 ns** |
-| complex word (`nghieeeng`) | **222 ns** | 324 ns | 435 ns |
-| short sentence | 602 ns | 318 ns | **285 ns** |
-| medium sentence | 2.84 µs | 9.59 µs | **1.62 µs** |
-| long sentence | 8.59 µs | 50.1 µs | **5.05 µs** |
-
-> `FastEngine` uses a zero-allocation, stack-only render pipeline (32-byte raw buffer, 128-byte UTF-8 output) with O(1) const action lookup tables. For single-word inputs, FastEngine matches or beats uvie-rs. For multi-word batch inputs (no space handling), FastEngine re-renders the entire raw buffer on every keystroke — use incremental mode with per-word commit for sentence-length inputs.
-
-### Vigo vs Unikey (C++, 100k iterations)
-
-Vigo is called through C FFI (`libvigo.so`); Unikey uses its native C++ API.
-
-| Input | Vigo | Unikey | Ratio |
-|-------|------|--------|-------|
-| simple word (`vieetj`) | 1.18 µs | 0.16 µs | 7.4x |
-| two words | 1.51 µs | 0.18 µs | 8.4x |
-| medium (5 words) | 4.55 µs | 0.60 µs | 7.5x |
-| long sentence (13 words) | 10.71 µs | 1.56 µs | 6.9x |
-
-> Unikey's C++ engine is ~7x faster than Vigo through C FFI. This is expected — Unikey uses in-place buffer mutation with zero allocations, while Vigo's FFI path involves engine creation, string allocation, and UTF-8 encoding per commit. Both are far below the 100,000 µs keystroke budget.
-
-### Internal engine comparison
-
-| Engine | Medium sentence | Description |
-|--------|----------------|-------------|
-| Legacy Engine | ~15 µs | First-generation table-lookup engine |
-| FastEngine | ~1.5 µs | Zero-allocation, stack-only CVC engine with O(1) lookup |
-| SyllableEngine | ~32 µs | CVC-based engine used by fcitx5 addon |
-| SmartEngine | ~295 µs | Full pipeline with validation + prediction |
-
-Run benchmarks: `cargo bench --bench vs_vi_rs`, `cargo bench --bench vs_uvie_rs`, or `cargo bench --bench benchmark`
-
-## Architecture
-
-```
-src/
-├── syllable.rs          # CVC syllable struct with tone/diacritic components
-├── action.rs            # Action & Transformation types (declarative rules)
-├── definitions.rs       # Telex and VNI rule tables
-├── tone.rs              # Tone placement following Vietnamese grammar rules
-├── syllable_engine.rs   # Main engine: feed/backspace/commit with undo history
-├── fast_engine.rs       # Zero-allocation engine: stack-only buffers, no std
-├── transform.rs         # Stateless batch transformation
-├── validation.rs        # Vietnamese syllable validation
-├── prediction.rs        # Next-word prediction
-├── codeswitching.rs     # Vietnamese/English detection
-├── smart_engine.rs      # Full pipeline combining all features
-├── ffi.rs               # C FFI bindings (cbindgen-generated header)
-└── main.rs              # CLI: repl, transform, batch modes
-
-fcitx5-addon/
-├── src/vigo.cpp         # Fcitx5 input method plugin (C++17)
-├── data/vigo.conf       # Addon registration
-├── CMakeLists.txt       # Build system
-└── install.sh           # One-command installer
-```
+Run benchmarks: `cargo bench --bench vs_uvie_rs`, `cargo bench --bench vs_vi_rs`, or `cargo bench`
 
 ## Installation
 
-### Prerequisites
+### fcitx5 (Linux desktop)
 
-- Rust toolchain (1.70+)
-- fcitx5 development headers (`fcitx5-dev` or `fcitx5-devel`)
-- cmake, pkg-config
-- A Linux desktop with fcitx5
-
-On Ubuntu/Debian:
 ```bash
+# Prerequisites (Ubuntu/Debian)
 sudo apt install fcitx5 libfcitx5core-dev cmake pkg-config
-```
 
-On Arch:
-```bash
+# Prerequisites (Arch)
 sudo pacman -S fcitx5 cmake pkg-config
-```
 
-### One-Command Install
-
-```bash
+# Install
 git clone https://github.com/haidinhtuan/vigo.git
 cd vigo
 ./fcitx5-addon/install.sh
 ```
 
-This builds everything, installs the addon, configures fcitx5 with Alt+Space toggle, sets up environment variables, and restarts fcitx5. You may need to log out and back in for all applications to pick up the input method.
-
-### Using Vigo
+This builds everything, installs the addon, configures fcitx5 with Alt+Space toggle, sets up environment variables, and restarts fcitx5. Log out and back in for all applications to pick up the input method.
 
 Toggle Vietnamese input with **Alt+Space**, then type using Telex:
 
@@ -155,50 +79,7 @@ Vieejt Nam    → Việt Nam
 THUWF VIEEJN  → THƯ VIỆN
 ```
 
-## Telex Input Rules
-
-### Vowel Diacritics
-
-| Input | Output | Description |
-|-------|--------|-------------|
-| aa | â | circumflex |
-| aw | ă | breve |
-| ee | ê | circumflex |
-| oo | ô | circumflex |
-| ow | ơ | horn |
-| uw | ư | horn |
-| dd | đ | stroke |
-
-### Tone Marks
-
-| Key | Tone | Example |
-|-----|------|---------|
-| s | sắc (acute) | as → á |
-| f | huyền (grave) | af → à |
-| r | hỏi (hook) | ar → ả |
-| x | ngã (tilde) | ax → ã |
-| j | nặng (dot) | aj → ạ |
-| z | remove tone | ász → a |
-
-### Special
-
-- Triple-key undo: `aaa` → `aa`, `ddd` → `dd`
-- Tone undo: `ass` → `as`
-- Standalone `w` → `ư`
-
-## VNI Input Rules
-
-| Input | Output | | Key | Tone |
-|-------|--------|-|-----|------|
-| a6 | â | | 1 | sắc |
-| a8 | ă | | 2 | huyền |
-| e6 | ê | | 3 | hỏi |
-| o6 | ô | | 4 | ngã |
-| o7 | ơ | | 5 | nặng |
-| u7 | ư | | 0 | remove |
-| d9 | đ | | | |
-
-## As a Rust Library
+### As a Rust library
 
 ```toml
 [dependencies]
@@ -216,21 +97,105 @@ for ch in "Vieejt".chars() {
 assert_eq!(engine.output(), "Việt");
 ```
 
-## Building from Source
+### As a C library
 
-```bash
-cargo build --release              # Library + CLI
-cargo build --release --features ffi  # Shared library for FFI
-cargo test                         # Run 112 tests
-cargo bench                        # Run benchmarks
-```
+Build with `cargo build --release --features ffi` to produce `libvigo.so` and auto-generate `include/vigo.h`. The C API exposes an opaque `vigo_engine_t*` with `vigo_new`, `vigo_feed`, `vigo_output`, `vigo_free`. Callers own returned `char*` strings and must call `vigo_free_string()`.
+
+## Engines
+
+Vigo provides three engine tiers:
+
+**FastEngine** — Zero-allocation, stack-only. 32-byte raw buffer, 128-byte UTF-8 output, 12-char max. Two-pass render pipeline: (1) scan raw bytes → resolve modifications → build char array, (2) apply tone → encode UTF-8. Best for embedded targets, hot loops, and benchmarks.
+
+**SyllableEngine** — Action-based engine with CVC syllable parsing, full undo history, and bypass mode. Used by the fcitx5 addon for preedit display. Rebuilds output on every keystroke.
+
+**SmartEngine** — Wraps SyllableEngine with Vietnamese syllable validation, word prediction (unigram/bigram), abbreviation expansion, and Vietnamese/English code-switching detection. All smart features are individually toggleable.
+
+## Input Methods
+
+### Telex
+
+| Diacritics | | Tones | |
+|------------|---|-------|---|
+| `aa` → `â` | `aw` → `ă` | `s` → sắc (á) | `f` → huyền (à) |
+| `ee` → `ê` | `oo` → `ô` | `r` → hỏi (ả) | `x` → ngã (ã) |
+| `ow` → `ơ` | `uw` → `ư` | `j` → nặng (ạ) | `z` → remove tone |
+| `dd` → `đ` | `w` → `ư` | | |
+
+Shortcuts: `[` → `ư`, `]` → `ơ`
+
+Undo: `aaa` → `aa`, `ddd` → `dd`, `ass` → `as`
+
+### VNI
+
+| Diacritics | | Tones | |
+|------------|---|-------|---|
+| `a6` → `â` | `a8` → `ă` | `1` → sắc | `2` → huyền |
+| `e6` → `ê` | `o6` → `ô` | `3` → hỏi | `4` → ngã |
+| `o7` → `ơ` | `u7` → `ư` | `5` → nặng | `0` → remove |
+| `d9` → `đ` | | | |
 
 ## CLI
 
 ```bash
-cargo run -- repl                  # Interactive mode
+cargo run -- tui                   # Terminal UI with clipboard (default)
+cargo run -- repl                  # Interactive REPL
 cargo run -- transform "xin chaof" # Single transformation
 echo "vieejt nam" | cargo run -- batch  # Pipe mode
+```
+
+Use `--vni` for VNI input method (default is Telex).
+
+## Building
+
+```bash
+cargo build --release                                    # Library + CLI
+cargo build --release --features ffi                     # C shared library + header
+cargo build --release --no-default-features --features heapless  # no_std embedded
+cargo test                                               # 137 tests
+cargo bench                                              # Criterion benchmarks
+```
+
+### Feature flags
+
+| Feature | Default | Purpose |
+|---------|---------|---------|
+| `std` | yes | Heap-allocated buffers, smart features, CLI |
+| `heapless` | no | `no_std` with fixed-capacity buffers (64/128 bytes) |
+| `tui` | yes | Terminal UI (crossterm + arboard clipboard) |
+| `ffi` | no | C FFI exports, cbindgen header generation |
+
+Exactly one of `std` or `heapless` must be enabled.
+
+## Architecture
+
+```
+src/
+├── action.rs            # Action enum and declarative transformation rules
+├── definitions.rs       # Telex and VNI rule tables
+├── syllable.rs          # CVC syllable struct with tone/diacritic components
+├── tone.rs              # Tone placement following Vietnamese grammar rules
+├── tables.rs            # Const O(1) lookup tables for vowel-to-tone mapping
+├── buffer.rs            # Buffer abstraction (std Vec or heapless Vec)
+├── fast_engine.rs       # Zero-allocation engine: stack-only, O(1) dispatch
+├── syllable_engine.rs   # CVC engine with undo history and bypass mode
+├── smart_engine.rs      # Full pipeline: validation + prediction + code-switching
+├── validation.rs        # Vietnamese syllable validation
+├── prediction.rs        # Next-word prediction (unigram/bigram)
+├── abbreviation.rs      # Abbreviation expansion
+├── codeswitching.rs     # Vietnamese/English detection
+├── engine.rs            # Legacy engine (wraps transform.rs)
+├── transform.rs         # Legacy stateless batch transformation
+├── ffi.rs               # C FFI bindings (cbindgen-generated header)
+├── repl.rs              # Interactive REPL and batch stdin processing
+├── tui.rs               # Terminal UI with floating input box
+└── main.rs              # CLI entry point
+
+fcitx5-addon/
+├── src/vigo.cpp         # Fcitx5 input method plugin (C++17)
+├── data/vigo.conf       # Addon registration
+├── CMakeLists.txt       # Build system
+└── install.sh           # One-command installer
 ```
 
 ## License
