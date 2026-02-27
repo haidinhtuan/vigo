@@ -1,6 +1,7 @@
 /target
 references/
 fcitx5-addon/build/
+benches/vs_unikey/build/
 logs/
 docs/
 
