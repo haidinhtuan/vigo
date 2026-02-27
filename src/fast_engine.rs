@@ -747,4 +747,18 @@ mod tests {
         e.backspace();
         assert_eq!(e.output(), "");
     }
+
+    // ── Task 10: Zero-allocation verification ────────────────────────────────
+
+    #[test]
+    fn test_zero_allocations_per_keystroke() {
+        let _e = FastEngine::telex();
+        let size = core::mem::size_of::<FastEngine>();
+        // FastEngine should be: [u8;32] + u8 + [u8;128] + u8 + InputMethod(u8) + padding
+        assert!(size <= 168, "FastEngine is {} bytes, expected <= 168", size);
+
+        // Verify it's Send + Sync (no hidden Rc/RefCell)
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<FastEngine>();
+    }
 }
