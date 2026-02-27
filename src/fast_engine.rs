@@ -697,4 +697,25 @@ mod tests {
         let mut e = FastEngine::vni();
         assert_eq!(type_seq(&mut e, "vie6t5"), "việt");
     }
+
+    // ── Task 7 tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_backspace() {
+        let mut e = FastEngine::telex();
+        type_seq(&mut e, "viee");
+        assert_eq!(e.output(), "viê");
+        e.backspace();
+        assert_eq!(e.output(), "vie");
+        assert_eq!(e.raw_input(), "vie");
+        e.backspace();
+        assert_eq!(e.output(), "vi");
+    }
+
+    #[test]
+    fn test_backspace_empty() {
+        let mut e = FastEngine::telex();
+        e.backspace();
+        assert_eq!(e.output(), "");
+    }
 }
