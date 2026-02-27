@@ -1,2 +1,6 @@
 /target
 references/
+fcitx5-addon/build/
+logs/
+CLAUDE.md
+*.log
