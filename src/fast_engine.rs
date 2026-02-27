@@ -317,13 +317,40 @@ impl FastEngine {
         let mut tone: u8 = 0;              // pending tone (0 = none)
         let mut inserted_u_pos: Option<usize> = None; // position of InsertU'd ư
 
+        // Toggle-detection tracking
+        let mut last_mod_key: u8 = 0;       // key that last applied a modification
+        let mut mod_applied_pos: usize = 0; // chars[] index of that modification
+        let mut mod_original: char = '\0';  // original char before modification
+        let mut last_tone_key: u8 = 0;      // key that last applied a tone
+
         for i in 0..self.raw_len as usize {
             let raw_byte = self.raw[i];
             let ch = raw_byte as char;
-            let ch_lower = ch.to_ascii_lowercase();
+            let ch_lower = ch.to_ascii_lowercase() as u8;
+            let prev_lower = if i > 0 { self.raw[i-1].to_ascii_lowercase() } else { 0 };
 
-            let actions = lookup_actions(definition, ch_lower);
+            // ── Toggle: same mod key pressed consecutively ──────────────────
+            if ch_lower == last_mod_key && prev_lower == last_mod_key && last_mod_key != 0 {
+                // Undo the modification
+                chars[mod_applied_pos] = mod_original;
+                // Append the current raw char as literal
+                if n < MAX_CHARS { chars[n] = ch; n += 1; }
+                last_mod_key = 0;
+                continue;
+            }
 
+            // ── Toggle: same tone key pressed consecutively ─────────────────
+            if ch_lower == last_tone_key && prev_lower == last_tone_key && last_tone_key != 0 {
+                // Undo the tone
+                tone = 0;
+                // Append the current raw char as literal
+                if n < MAX_CHARS { chars[n] = ch; n += 1; }
+                last_tone_key = 0;
+                continue;
+            }
+
+            let ch_char = ch_lower as char;
+            let actions = lookup_actions(definition, ch_char);
             let mut applied = false;
 
             if let Some(actions) = actions {
@@ -331,7 +358,12 @@ impl FastEngine {
                     match action {
                         Action::ModifyLetterOnFamily(mod_, family) => {
                             if let Some(pos) = find_family_target(&chars, n, *family) {
+                                let orig = chars[pos];
                                 if apply_modification_at(&mut chars, pos, *mod_) {
+                                    last_mod_key = ch_lower;
+                                    mod_applied_pos = pos;
+                                    mod_original = orig;
+                                    last_tone_key = 0;
                                     applied = true;
                                     break 'action_loop;
                                 }
@@ -339,7 +371,12 @@ impl FastEngine {
                         }
                         Action::ModifyLetter(mod_) => {
                             if let Some(pos) = find_mod_target(&chars, n, *mod_) {
+                                let orig = chars[pos];
                                 if apply_modification_at(&mut chars, pos, *mod_) {
+                                    last_mod_key = ch_lower;
+                                    mod_applied_pos = pos;
+                                    mod_original = orig;
+                                    last_tone_key = 0;
                                     applied = true;
                                     break 'action_loop;
                                 }
@@ -349,6 +386,8 @@ impl FastEngine {
                             // Only apply if there's at least one vowel in chars
                             if n > 0 && chars[0..n].iter().any(|c| is_vowel_char(*c)) {
                                 tone = tone_mark_to_id(*tm);
+                                last_tone_key = ch_lower;
+                                last_mod_key = 0;
                                 applied = true;
                                 break 'action_loop;
                             }
@@ -356,14 +395,20 @@ impl FastEngine {
                         Action::RemoveTone => {
                             if tone > 0 {
                                 tone = 0;
+                                last_tone_key = 0;
                                 applied = true;
                                 break 'action_loop;
                             }
                         }
                         Action::InsertU => {
                             if n < MAX_CHARS {
+                                let orig = chars[n]; // '\0'
                                 chars[n] = 'ư';
                                 inserted_u_pos = Some(n);
+                                last_mod_key = ch_lower;
+                                mod_applied_pos = n;
+                                mod_original = orig;
+                                last_tone_key = 0;
                                 n += 1;
                                 applied = true;
                                 break 'action_loop;
@@ -377,6 +422,7 @@ impl FastEngine {
                                 }
                                 if n > 0 { n -= 1; }
                                 inserted_u_pos = None;
+                                last_mod_key = 0;
                                 applied = true;
                                 break 'action_loop;
                             }
@@ -394,11 +440,14 @@ impl FastEngine {
             }
 
             if !applied {
-                // Append the raw char as-is
+                // Append the raw char as-is (preserve original case)
                 if n < MAX_CHARS {
                     chars[n] = ch;
                     n += 1;
                 }
+                // Clear toggle tracking when raw char is appended
+                last_mod_key = 0;
+                last_tone_key = 0;
             }
         }
 
@@ -564,5 +613,33 @@ mod tests {
         // "toois" -> "tối": circumflex on o, tone on ô
         let mut e = FastEngine::telex();
         assert_eq!(type_seq(&mut e, "toois"), "tối");
+    }
+
+    // ── Task 4 tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_triple_undo() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "aaa"), "aa");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "ddd"), "dd");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "eee"), "ee");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "ooo"), "oo");
+    }
+
+    #[test]
+    fn test_tone_undo() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "ass"), "as");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "aff"), "af");
+    }
+
+    #[test]
+    fn test_z_removes_tone() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "asz"), "a");
     }
 }
