@@ -72,7 +72,7 @@ fn find_family_target(chars: &[char; MAX_CHARS], len: usize, family_char: char) 
     let family_lower = family_char.to_ascii_lowercase();
     let family_id = vowel_to_id(family_lower)?;
     for i in (0..len).rev() {
-        let c_lower = chars[i].to_ascii_lowercase();
+        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
         if let Some(id) = vowel_to_id(c_lower) {
             if id == family_id {
                 return Some(i);
@@ -88,7 +88,7 @@ fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModificati
         LetterModification::Horn => {
             // Look for 'o' (vowel_id 6) or 'u' (vowel_id 9) family — base form only
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_ascii_lowercase();
+                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
                 if let Some(id) = vowel_to_id(c_lower) {
                     if id == 6 || id == 9 {
                         return Some(i);
@@ -100,7 +100,7 @@ fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModificati
         LetterModification::Breve => {
             // Look for 'a' family (vowel_id 0)
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_ascii_lowercase();
+                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
                 if let Some(id) = vowel_to_id(c_lower) {
                     if id == 0 {
                         return Some(i);
@@ -121,7 +121,7 @@ fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModificati
         LetterModification::Circumflex => {
             // Look for 'a' (0), 'e' (3), or 'o' (6) family — base form only
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_ascii_lowercase();
+                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
                 if let Some(id) = vowel_to_id(c_lower) {
                     if id == 0 || id == 3 || id == 6 {
                         return Some(i);
@@ -137,7 +137,8 @@ fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModificati
 fn apply_modification_at(chars: &mut [char; MAX_CHARS], pos: usize, mod_: LetterModification) -> bool {
     let orig = chars[pos];
     let is_upper = orig.is_uppercase();
-    let c_lower = orig.to_ascii_lowercase();
+    // Unicode-aware lowercase for non-ASCII chars like 'Ê'
+    let c_lower = orig.to_lowercase().next().unwrap_or(orig);
 
     // For consonant-like chars ('d'), extract_tone returns (c, 0)
     let (base, tone) = extract_tone(c_lower);
@@ -181,7 +182,7 @@ fn find_tone_target(
 
     // Priority 1: modified vowel (â, ă, ê, ô, ơ, ư) takes precedence
     for i in vowel_start..vowel_end {
-        let c_lower = chars[i].to_ascii_lowercase();
+        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
         if is_modified_base(c_lower) {
             return Some(i);
         }
@@ -193,7 +194,8 @@ fn find_tone_target(
     let mut clean_buf = ['\0'; MAX_CHARS];
     let mut clean_len = 0usize;
     for i in vowel_start..vowel_end {
-        let (base, _) = extract_tone(chars[i].to_ascii_lowercase());
+        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
+        let (base, _) = extract_tone(c_lower);
         clean_buf[clean_len] = base;
         clean_len += 1;
     }
@@ -228,7 +230,9 @@ const fn is_modified_base(c: char) -> bool {
 /// Returns true if a char is a vowel (any Vietnamese vowel, any tone).
 #[inline]
 fn is_vowel_char(c: char) -> bool {
-    vowel_to_id(c.to_ascii_lowercase()).is_some()
+    // Use Unicode-aware lowercase to handle uppercase non-ASCII chars like 'Ê', 'Ô'
+    let c_lower = c.to_lowercase().next().unwrap_or(c);
+    vowel_to_id(c_lower).is_some()
 }
 
 /// Zero-allocation Vietnamese input engine.
@@ -402,12 +406,9 @@ impl FastEngine {
                         }
                         Action::InsertU => {
                             if n < MAX_CHARS {
-                                let orig = chars[n]; // '\0'
                                 chars[n] = 'ư';
                                 inserted_u_pos = Some(n);
-                                last_mod_key = ch_lower;
-                                mod_applied_pos = n;
-                                mod_original = orig;
+                                // Don't track in last_mod_key — ResetInsertedU handles undo
                                 last_tone_key = 0;
                                 n += 1;
                                 applied = true;
@@ -423,7 +424,7 @@ impl FastEngine {
                                 if n > 0 { n -= 1; }
                                 inserted_u_pos = None;
                                 last_mod_key = 0;
-                                applied = true;
+                                // Don't set applied=true — let the raw 'w' be appended as literal
                                 break 'action_loop;
                             }
                         }
@@ -641,5 +642,41 @@ mod tests {
     fn test_z_removes_tone() {
         let mut e = FastEngine::telex();
         assert_eq!(type_seq(&mut e, "asz"), "a");
+    }
+
+    // ── Task 5 tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_case_first_upper() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "Vieetj"), "Việt");
+    }
+
+    #[test]
+    fn test_case_all_upper() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "VIEETJ"), "VIỆT");
+    }
+
+    #[test]
+    fn test_standalone_w() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "w"), "ư");
+    }
+
+    #[test]
+    fn test_ww_undo() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "ww"), "w");
+    }
+
+    #[test]
+    fn test_bracket_shortcuts() {
+        let mut e = FastEngine::telex();
+        e.feed('[');
+        assert_eq!(e.output(), "ư");
+        e.clear();
+        e.feed(']');
+        assert_eq!(e.output(), "ơ");
     }
 }
