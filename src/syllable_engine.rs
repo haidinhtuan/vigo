@@ -79,9 +79,38 @@ impl SyllableEngine {
         self.syllable.accent_style = style;
     }
 
-    /// Returns the current output string.
+    /// Returns the current output string, preserving case from raw input.
     pub fn output(&self) -> String {
-        self.syllable.to_string()
+        let base = self.syllable.to_string();
+        if base.is_empty() || self.raw_input.is_empty() {
+            return base;
+        }
+
+        let raw_letters: Vec<char> = self.raw_input.chars()
+            .filter(|c| c.is_alphabetic())
+            .collect();
+        if raw_letters.is_empty() {
+            return base;
+        }
+
+        let first_upper = raw_letters[0].is_uppercase();
+        let all_upper = raw_letters.len() > 1
+            && raw_letters.iter().all(|c| c.is_uppercase());
+
+        if all_upper {
+            base.to_uppercase()
+        } else if first_upper {
+            let mut chars = base.chars();
+            match chars.next() {
+                None => base,
+                Some(first) => {
+                    let upper: String = first.to_uppercase().collect();
+                    upper + chars.as_str()
+                }
+            }
+        } else {
+            base
+        }
     }
 
     /// Returns the raw input buffer.
