@@ -5,7 +5,7 @@ edition = "2021"
 description = "A fast, ergonomic Vietnamese input method engine (Telex, VNI) for Rust"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/user/vigo"
+repository = "https://github.com/haidinhtuan/vigo"
 keywords = ["vietnamese", "ime", "telex", "vni", "input-method"]
 categories = ["text-processing", "no-std::no-alloc"]
 
