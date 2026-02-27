@@ -698,6 +698,35 @@ mod tests {
         assert_eq!(type_seq(&mut e, "vie6t5"), "việt");
     }
 
+    // ── Task 8: Parity test against SyllableEngine ────────────────────────────
+
+    #[test]
+    fn test_parity_with_syllable_engine() {
+        use crate::SyllableEngine;
+
+        let cases = [
+            "vieetj", "xin", "chaof", "thuwowngf", "ddi",
+            "hocj", "tieengs", "Vieetj", "VIEETJ",
+            "aaa", "ddd", "ass", "aff", "asz",
+            "aw", "ow", "uw", "aa", "ee", "oo", "dd",
+            "toois", "aasn", "nghieeeng",
+        ];
+
+        for input in &cases {
+            let mut fast = FastEngine::telex();
+            let mut syll = SyllableEngine::telex();
+            for ch in input.chars() {
+                fast.feed(ch);
+                syll.feed(ch);
+            }
+            assert_eq!(
+                fast.output(), syll.output().as_str(),
+                "Mismatch for input '{}': fast='{}', syllable='{}'",
+                input, fast.output(), syll.output()
+            );
+        }
+    }
+
     // ── Task 7 tests ─────────────────────────────────────────────────────────
 
     #[test]
