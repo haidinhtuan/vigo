@@ -44,15 +44,15 @@ Incremental — character-by-character engine:
 
 Incremental feed — both engines use a `feed(char)` API, direct comparison:
 
-| Input | Vigo FastEngine | Vigo SyllableEngine | uvie-rs |
-|-------|----------------|-------------------|---------|
-| simple word (`vieetj`) | 375 ns | 1.64 µs | **280 ns** |
-| medium word (`thuwowngf`) | 839 ns | 1.98 µs | **572 ns** |
-| short sentence (2 words) | 659 ns | 2.71 µs | **322 ns** |
-| medium sentence (8 words) | **20.4 µs** | 32.8 µs | 1.80 µs |
-| long sentence (24 words) | **85.7 µs** | 169 µs | 5.42 µs |
+| Input | Vigo FastEngine | Vigo SyllableEngine | uvie-rs | Fast vs Syllable |
+|-------|----------------|-------------------|---------|-----------------|
+| simple word (`vieetj`) | 374 ns | 1.55 µs | **277 ns** | **4.1x faster** |
+| medium word (`thuwowngf`) | 857 ns | 1.99 µs | **571 ns** | **2.3x faster** |
+| short sentence (2 words) | 606 ns | 2.68 µs | **316 ns** | **4.4x faster** |
+| medium sentence (8 words) | 20.3 µs | 31.5 µs | **1.71 µs** | **1.6x faster** |
+| long sentence (24 words) | 86.5 µs | 169 µs | **5.49 µs** | **1.9x faster** |
 
-FastEngine is 2–4x faster than SyllableEngine. uvie-rs is still faster for single-word inputs (~1.3–2x); FastEngine closes the gap but rebuilds the full output each keystroke rather than maintaining incremental caches.
+FastEngine is 2–4x faster than SyllableEngine with zero heap allocations per keystroke. uvie-rs is still faster for single-word inputs (~1.3–1.5x); the gap widens for multi-word inputs because uvie-rs commits each word incrementally while FastEngine re-renders the entire raw buffer from scratch on every keystroke.
 
 Batch transform (Vigo `transform_buffer` vs uvie-rs feed loop):
 
@@ -86,8 +86,8 @@ Vigo is called through C FFI (`libvigo.so`); Unikey uses its native C++ API.
 |--------|----------------|-------------|
 | Legacy Engine | ~15 µs | First-generation table-lookup engine |
 | FastEngine | ~20 µs | Zero-allocation, stack-only CVC engine |
-| SyllableEngine | ~33 µs | CVC-based engine used by fcitx5 addon |
-| SmartEngine | ~277 µs | Full pipeline with validation + prediction |
+| SyllableEngine | ~32 µs | CVC-based engine used by fcitx5 addon |
+| SmartEngine | ~295 µs | Full pipeline with validation + prediction |
 
 Run benchmarks: `cargo bench --bench vs_vi_rs`, `cargo bench --bench vs_uvie_rs`, or `cargo bench --bench benchmark`
 
