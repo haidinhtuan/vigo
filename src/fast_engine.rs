@@ -5,7 +5,7 @@
 
 use crate::action::{Action, InputMethod};
 use crate::syllable::{LetterModification, ToneMark};
-use crate::tables::{vowel_to_id, apply_tone as tables_apply_tone, extract_tone};
+use crate::tables::{vowel_to_id, apply_tone as tables_apply_tone, extract_tone, TONE_VOWELS};
 use crate::definitions::{get_definition, lookup_actions};
 
 /// Maximum raw input bytes (ASCII keystrokes).
@@ -14,6 +14,92 @@ const MAX_RAW: usize = 32;
 const MAX_OUT: usize = 128;
 /// Maximum output chars.
 const MAX_CHARS: usize = 12;
+
+/// Fast O(1) lowercase for chars that are either ASCII or Vietnamese vowels.
+/// Avoids the `.to_lowercase().next().unwrap()` iterator chain.
+#[inline]
+fn fast_lower(c: char) -> char {
+    if c.is_ascii() {
+        (c as u8).to_ascii_lowercase() as char
+    } else {
+        // For non-ASCII Vietnamese chars, check if uppercase via a quick range test
+        // Vietnamese uppercase diacritics: Â,Ă,Ê,Ô,Ơ,Ư and their toned variants
+        // Use the standard method only for non-ASCII
+        let mut lower_iter = c.to_lowercase();
+        lower_iter.next().unwrap_or(c)
+    }
+}
+
+/// Fast O(1) uppercase for chars that are either ASCII or Vietnamese vowels.
+#[inline]
+fn fast_upper(c: char) -> char {
+    if c.is_ascii() {
+        (c as u8).to_ascii_uppercase() as char
+    } else {
+        let mut upper_iter = c.to_uppercase();
+        upper_iter.next().unwrap_or(c)
+    }
+}
+
+/// Fast vowel_to_id that skips the lowercase conversion for already-lowercase chars.
+#[inline]
+fn fast_vowel_id(c: char) -> Option<usize> {
+    vowel_to_id(if c.is_ascii() { (c as u8).to_ascii_lowercase() as char } else { fast_lower(c) })
+}
+
+/// Precomputed byte-indexed action lookup for Telex.
+/// Maps ASCII byte -> index into TELEX definition, or 255 = no action.
+const TELEX_ACTION_MAP: [u8; 128] = {
+    let mut map = [255u8; 128];
+    map[b's' as usize] = 0;  // AddTone(Acute)
+    map[b'f' as usize] = 1;  // AddTone(Grave)
+    map[b'r' as usize] = 2;  // AddTone(HookAbove)
+    map[b'x' as usize] = 3;  // AddTone(Tilde)
+    map[b'j' as usize] = 4;  // AddTone(Underdot)
+    map[b'z' as usize] = 5;  // RemoveTone
+    map[b'a' as usize] = 6;  // ModifyLetterOnFamily(Circumflex, 'a')
+    map[b'e' as usize] = 7;  // ModifyLetterOnFamily(Circumflex, 'e')
+    map[b'o' as usize] = 8;  // ModifyLetterOnFamily(Circumflex, 'o')
+    map[b'w' as usize] = 9;  // [ResetInsertedU, Horn, Breve, InsertU]
+    map[b'd' as usize] = 10; // ModifyLetter(Stroke)
+    map[b'[' as usize] = 11; // AppendChar('ư')
+    map[b']' as usize] = 12; // AppendChar('ơ')
+    map
+};
+
+/// Precomputed byte-indexed action lookup for VNI.
+const VNI_ACTION_MAP: [u8; 128] = {
+    let mut map = [255u8; 128];
+    map[b'1' as usize] = 0;  // AddTone(Acute)
+    map[b'2' as usize] = 1;  // AddTone(Grave)
+    map[b'3' as usize] = 2;  // AddTone(HookAbove)
+    map[b'4' as usize] = 3;  // AddTone(Tilde)
+    map[b'5' as usize] = 4;  // AddTone(Underdot)
+    map[b'0' as usize] = 5;  // RemoveTone
+    map[b'6' as usize] = 6;  // ModifyLetter(Circumflex)
+    map[b'7' as usize] = 7;  // ModifyLetter(Horn)
+    map[b'8' as usize] = 8;  // ModifyLetter(Breve)
+    map[b'9' as usize] = 9;  // ModifyLetter(Stroke)
+    map
+};
+
+/// O(1) action lookup using precomputed byte-indexed tables.
+#[inline]
+fn fast_lookup_actions(method: InputMethod, key: u8) -> Option<&'static [Action]> {
+    let idx = match method {
+        InputMethod::Telex => {
+            if (key as usize) < 128 { TELEX_ACTION_MAP[key as usize] } else { 255 }
+        }
+        InputMethod::Vni => {
+            if (key as usize) < 128 { VNI_ACTION_MAP[key as usize] } else { 255 }
+        }
+    };
+    if idx == 255 {
+        return None;
+    }
+    let definition = get_definition(method);
+    definition.get(idx as usize).map(|(_, actions)| *actions)
+}
 
 /// Apply circumflex to a base vowel: a→â, e→ê, o→ô
 #[inline]
@@ -72,8 +158,7 @@ fn find_family_target(chars: &[char; MAX_CHARS], len: usize, family_char: char) 
     let family_lower = family_char.to_ascii_lowercase();
     let family_id = vowel_to_id(family_lower)?;
     for i in (0..len).rev() {
-        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
-        if let Some(id) = vowel_to_id(c_lower) {
+        if let Some(id) = fast_vowel_id(chars[i]) {
             if id == family_id {
                 return Some(i);
             }
@@ -86,46 +171,31 @@ fn find_family_target(chars: &[char; MAX_CHARS], len: usize, family_char: char) 
 fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModification) -> Option<usize> {
     match mod_ {
         LetterModification::Horn => {
-            // Look for 'o' (vowel_id 6) or 'u' (vowel_id 9) family — base form only
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
-                if let Some(id) = vowel_to_id(c_lower) {
-                    if id == 6 || id == 9 {
-                        return Some(i);
-                    }
+                if let Some(id) = fast_vowel_id(chars[i]) {
+                    if id == 6 || id == 9 { return Some(i); }
                 }
             }
             None
         }
         LetterModification::Breve => {
-            // Look for 'a' family (vowel_id 0)
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
-                if let Some(id) = vowel_to_id(c_lower) {
-                    if id == 0 {
-                        return Some(i);
-                    }
+                if let Some(id) = fast_vowel_id(chars[i]) {
+                    if id == 0 { return Some(i); }
                 }
             }
             None
         }
         LetterModification::Stroke => {
-            // Look for 'd'
             for i in (0..len).rev() {
-                if chars[i].to_ascii_lowercase() == 'd' {
-                    return Some(i);
-                }
+                if chars[i].to_ascii_lowercase() == 'd' { return Some(i); }
             }
             None
         }
         LetterModification::Circumflex => {
-            // Look for 'a' (0), 'e' (3), or 'o' (6) family — base form only
             for i in (0..len).rev() {
-                let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
-                if let Some(id) = vowel_to_id(c_lower) {
-                    if id == 0 || id == 3 || id == 6 {
-                        return Some(i);
-                    }
+                if let Some(id) = fast_vowel_id(chars[i]) {
+                    if id == 0 || id == 3 || id == 6 { return Some(i); }
                 }
             }
             None
@@ -137,16 +207,13 @@ fn find_mod_target(chars: &[char; MAX_CHARS], len: usize, mod_: LetterModificati
 fn apply_modification_at(chars: &mut [char; MAX_CHARS], pos: usize, mod_: LetterModification) -> bool {
     let orig = chars[pos];
     let is_upper = orig.is_uppercase();
-    // Unicode-aware lowercase for non-ASCII chars like 'Ê'
-    let c_lower = orig.to_lowercase().next().unwrap_or(orig);
-
-    // For consonant-like chars ('d'), extract_tone returns (c, 0)
+    let c_lower = fast_lower(orig);
     let (base, tone) = extract_tone(c_lower);
 
     if let Some(new_base) = apply_mod_to_base(base, mod_) {
         let toned = tables_apply_tone(new_base, tone);
         chars[pos] = if is_upper {
-            toned.to_uppercase().next().unwrap_or(toned)
+            fast_upper(toned)
         } else {
             toned
         };
@@ -182,7 +249,7 @@ fn find_tone_target(
 
     // Priority 1: modified vowel (â, ă, ê, ô, ơ, ư) takes precedence
     for i in vowel_start..vowel_end {
-        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
+        let c_lower = fast_lower(chars[i]);
         if is_modified_base(c_lower) {
             return Some(i);
         }
@@ -194,8 +261,7 @@ fn find_tone_target(
     let mut clean_buf = ['\0'; MAX_CHARS];
     let mut clean_len = 0usize;
     for i in vowel_start..vowel_end {
-        let c_lower = chars[i].to_lowercase().next().unwrap_or(chars[i]);
-        let (base, _) = extract_tone(c_lower);
+        let (base, _) = extract_tone(fast_lower(chars[i]));
         clean_buf[clean_len] = base;
         clean_len += 1;
     }
@@ -230,9 +296,7 @@ const fn is_modified_base(c: char) -> bool {
 /// Returns true if a char is a vowel (any Vietnamese vowel, any tone).
 #[inline]
 fn is_vowel_char(c: char) -> bool {
-    // Use Unicode-aware lowercase to handle uppercase non-ASCII chars like 'Ê', 'Ô'
-    let c_lower = c.to_lowercase().next().unwrap_or(c);
-    vowel_to_id(c_lower).is_some()
+    fast_vowel_id(c).is_some()
 }
 
 /// Zero-allocation Vietnamese input engine.
@@ -313,13 +377,12 @@ impl FastEngine {
     /// Pass 1: scan raw bytes → resolve modifications → build chars[] + track tone + CVC bounds
     /// Pass 2: apply tone to the correct vowel → encode UTF-8
     fn render(&mut self) -> &str {
-        let definition = get_definition(self.method);
-
         // ── Pass 1: Build chars[] with modifications applied ──────────────────
         let mut chars = ['\0'; MAX_CHARS];
         let mut n: usize = 0;
         let mut tone: u8 = 0;              // pending tone (0 = none)
         let mut inserted_u_pos: Option<usize> = None; // position of InsertU'd ư
+        let method = self.method;
 
         // Toggle-detection tracking
         let mut last_mod_key: u8 = 0;       // key that last applied a modification
@@ -330,14 +393,16 @@ impl FastEngine {
         for i in 0..self.raw_len as usize {
             let raw_byte = self.raw[i];
             let ch = raw_byte as char;
-            let ch_lower = ch.to_ascii_lowercase() as u8;
-            let prev_lower = if i > 0 { self.raw[i-1].to_ascii_lowercase() } else { 0 };
+            // Fast ASCII lowercase: bit-twiddling only works for A-Z (0x41-0x5A)
+            let ch_lower = if raw_byte >= b'A' && raw_byte <= b'Z' { raw_byte | 0x20 } else { raw_byte };
+            let prev_lower = if i > 0 {
+                let p = self.raw[i-1];
+                if p >= b'A' && p <= b'Z' { p | 0x20 } else { p }
+            } else { 0 };
 
             // ── Toggle: same mod key pressed consecutively ──────────────────
             if ch_lower == last_mod_key && prev_lower == last_mod_key && last_mod_key != 0 {
-                // Undo the modification
                 chars[mod_applied_pos] = mod_original;
-                // Append the current raw char as literal
                 if n < MAX_CHARS { chars[n] = ch; n += 1; }
                 last_mod_key = 0;
                 continue;
@@ -345,16 +410,14 @@ impl FastEngine {
 
             // ── Toggle: same tone key pressed consecutively ─────────────────
             if ch_lower == last_tone_key && prev_lower == last_tone_key && last_tone_key != 0 {
-                // Undo the tone
                 tone = 0;
-                // Append the current raw char as literal
                 if n < MAX_CHARS { chars[n] = ch; n += 1; }
                 last_tone_key = 0;
                 continue;
             }
 
-            let ch_char = ch_lower as char;
-            let actions = lookup_actions(definition, ch_char);
+            // O(1) action lookup via precomputed byte-indexed table
+            let actions = fast_lookup_actions(method, ch_lower);
             let mut applied = false;
 
             if let Some(actions) = actions {
@@ -388,7 +451,13 @@ impl FastEngine {
                         }
                         Action::AddTone(tm) => {
                             // Only apply if there's at least one vowel in chars
-                            if n > 0 && chars[0..n].iter().any(|c| is_vowel_char(*c)) {
+                            let has_vowel = {
+                                let mut found = false;
+                                let mut k = 0;
+                                while k < n { if is_vowel_char(chars[k]) { found = true; break; } k += 1; }
+                                found
+                            };
+                            if n > 0 && has_vowel {
                                 tone = tone_mark_to_id(*tm);
                                 last_tone_key = ch_lower;
                                 last_mod_key = 0;
@@ -461,16 +530,11 @@ impl FastEngine {
             let tone_pos = find_tone_target(&chars, n, vowel_start, vowel_end);
 
             if let Some(pos) = tone_pos {
-                // Apply tone, preserving case
                 let orig = chars[pos];
                 let is_upper = orig.is_uppercase();
-                let c_lower = orig.to_ascii_lowercase();
+                let c_lower = fast_lower(orig);
                 let result = tables_apply_tone(c_lower, tone);
-                chars[pos] = if is_upper {
-                    result.to_uppercase().next().unwrap_or(result)
-                } else {
-                    result
-                };
+                chars[pos] = if is_upper { fast_upper(result) } else { result };
             }
         }
 
