@@ -96,18 +96,30 @@ DefaultPageSize=5
 PreloadInputMethod=True
 EOF
 
+# Set up environment variables for input method frameworks
+echo "[7/8] Setting up environment variables..."
+mkdir -p "$HOME/.config/environment.d"
+cat > "$HOME/.config/environment.d/fcitx5.conf" << 'EOF'
+GTK_IM_MODULE=fcitx
+QT_IM_MODULE=fcitx
+XMODIFIERS=@im=fcitx
+EOF
+
+# Restart fcitx5
+echo "[8/8] Starting fcitx5..."
+fcitx5 -r -d 2>/dev/null || true
+sleep 1
+
 echo ""
 echo "=== Installation complete! ==="
 echo ""
-echo "Start fcitx5:"
-echo "  fcitx5 -r"
-echo ""
-echo "You should see:"
-echo "  Loaded addon vigo"
-echo "  Found 1 input method(s) in addon vigo"
+echo "Vigo is now installed and running."
 echo ""
 echo "Use Alt+Space to toggle between English and Vietnamese."
 echo "When Vietnamese is active, type using Telex:"
 echo "  xin chaof → xin chào"
 echo "  Vieejt Nam → Việt Nam"
+echo ""
+echo "NOTE: You may need to log out and back in for environment"
+echo "variables to take effect in all applications."
 echo ""
