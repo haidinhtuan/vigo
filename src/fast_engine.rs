@@ -679,4 +679,22 @@ mod tests {
         e.feed(']');
         assert_eq!(e.output(), "ơ");
     }
+
+    // ── Task 6 tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_vni_basic() {
+        let mut e = FastEngine::vni();
+        assert_eq!(type_seq(&mut e, "a6"), "â");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "a1"), "á");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "d9"), "đ");
+    }
+
+    #[test]
+    fn test_vni_combined() {
+        let mut e = FastEngine::vni();
+        assert_eq!(type_seq(&mut e, "vie6t5"), "việt");
+    }
 }
