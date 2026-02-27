@@ -1,85 +1,86 @@
-/*
- * Vigo - Vietnamese Input Method Engine
- * C API Header
- */
-
 #ifndef VIGO_H
 #define VIGO_H
 
-#include <stdint.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* Opaque handle to vigo engine */
-typedef struct VigoEngine vigo_engine_t;
-
-/*
- * Create a new vigo engine with Telex input method.
- * Returns a pointer that must be freed with vigo_free().
+/**
+ * Maximum buffer size for heapless mode.
  */
-vigo_engine_t* vigo_new_telex(void);
+#define MAX_BUFFER_SIZE 64
 
-/*
- * Create a new vigo engine with VNI input method.
- * Returns a pointer that must be freed with vigo_free().
+/**
+ * Maximum output size for heapless mode.
  */
-vigo_engine_t* vigo_new_vni(void);
+#define MAX_OUTPUT_SIZE 128
 
-/*
- * Free a vigo engine instance.
+/**
+ * Opaque handle to a vigo engine instance.
  */
-void vigo_free(vigo_engine_t* engine);
+typedef struct vigo_engine_t vigo_engine_t;
 
-/*
- * Feed a character (Unicode codepoint) into the engine.
+/**
+ * Creates a new vigo engine with Telex input method.
+ * Returns a pointer that must be freed with `vigo_free`.
+ */
+struct vigo_engine_t *vigo_new_telex(void);
+
+/**
+ * Creates a new vigo engine with VNI input method.
+ * Returns a pointer that must be freed with `vigo_free`.
+ */
+struct vigo_engine_t *vigo_new_vni(void);
+
+/**
+ * Frees a vigo engine instance.
+ */
+void vigo_free(struct vigo_engine_t *engine);
+
+/**
+ * Feeds a character into the engine.
  * Returns true if the character was processed.
  */
-bool vigo_feed(vigo_engine_t* engine, uint32_t ch);
+bool vigo_feed(struct vigo_engine_t *engine, uint32_t ch);
 
-/*
- * Get the current transformed output as a UTF-8 string.
- * The returned string must be freed with vigo_free_string().
+/**
+ * Gets the current output as a C string.
+ * The returned string must be freed with `vigo_free_string`.
  */
-char* vigo_get_output(const vigo_engine_t* engine);
+char *vigo_get_output(const struct vigo_engine_t *engine);
 
-/*
- * Get the raw input buffer as a UTF-8 string.
- * The returned string must be freed with vigo_free_string().
+/**
+ * Gets the raw input as a C string.
+ * The returned string must be freed with `vigo_free_string`.
  */
-char* vigo_get_raw_input(const vigo_engine_t* engine);
+char *vigo_get_raw_input(const struct vigo_engine_t *engine);
 
-/*
- * Free a string returned by vigo functions.
+/**
+ * Frees a string returned by vigo functions.
  */
-void vigo_free_string(char* s);
+void vigo_free_string(char *s);
 
-/*
- * Process a backspace key.
+/**
+ * Processes a backspace.
  * Returns true if a character was removed.
  */
-bool vigo_backspace(vigo_engine_t* engine);
+bool vigo_backspace(struct vigo_engine_t *engine);
 
-/*
- * Clear all input.
+/**
+ * Clears all input.
  */
-void vigo_clear(vigo_engine_t* engine);
+void vigo_clear(struct vigo_engine_t *engine);
 
-/*
- * Commit the current output and clear the engine.
- * Returns the output string which must be freed with vigo_free_string().
+/**
+ * Commits and returns the output, clearing the engine.
+ * The returned string must be freed with `vigo_free_string`.
  */
-char* vigo_commit(vigo_engine_t* engine);
+char *vigo_commit(struct vigo_engine_t *engine);
 
-/*
- * Check if the engine buffer is empty.
+/**
+ * Returns true if the engine buffer is empty.
  */
-bool vigo_is_empty(const vigo_engine_t* engine);
-
-#ifdef __cplusplus
-}
-#endif
+bool vigo_is_empty(const struct vigo_engine_t *engine);
 
 #endif /* VIGO_H */
