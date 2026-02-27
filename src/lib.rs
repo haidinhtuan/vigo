@@ -59,6 +59,7 @@ pub mod action;
 pub mod definitions;
 pub mod tone;
 pub mod syllable_engine;
+pub mod fast_engine;
 
 // Smart features
 #[cfg(feature = "std")]
@@ -81,6 +82,7 @@ pub use action::{Action, Transformation};
 pub use definitions::{TELEX, VNI, lookup_actions};
 pub use tone::{find_tone_position, apply_tone as apply_syllable_tone, remove_tone as remove_syllable_tone, apply_modification, remove_modification};
 pub use syllable_engine::SyllableEngine;
+pub use fast_engine::FastEngine;
 
 #[cfg(feature = "std")]
 pub use validation::{validate_syllable, is_valid_vietnamese, suggest_corrections, ValidationResult};
