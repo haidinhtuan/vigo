@@ -1,11 +1,16 @@
 /*
  * Fcitx5 Vietnamese Input Method using vigo engine
+ *
+ * Uses preedit approach (same as fcitx5-unikey). On Wayland compositors
+ * like Hyprland that don't support inline client preedit, the preedit
+ * text appears in a floating panel — this is standard behavior.
  */
 
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontextproperty.h>
 #include <fcitx/inputmethodengine.h>
+#include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
 #include <fcitx-utils/i18n.h>
 
@@ -36,7 +41,14 @@ public:
 
     void keyEvent(fcitx::KeyEvent &event) {
         auto key = event.key();
-        
+
+        // Let modifier combinations pass through (for hotkeys)
+        if (key.states().test(fcitx::KeyState::Ctrl) ||
+            key.states().test(fcitx::KeyState::Alt) ||
+            key.states().test(fcitx::KeyState::Super)) {
+            return;
+        }
+
         // Handle backspace
         if (key.check(FcitxKey_BackSpace)) {
             if (!vigo_is_empty(engine_)) {
@@ -48,20 +60,23 @@ public:
             return;
         }
 
-        // Handle space/enter - commit
-        if (key.check(FcitxKey_space) || key.check(FcitxKey_Return)) {
+        // Handle space - commit current word and pass space through
+        if (key.check(FcitxKey_space)) {
             if (!vigo_is_empty(engine_)) {
                 commit();
-                // Don't filter space - let it through
-                if (key.check(FcitxKey_Return)) {
-                    event.filterAndAccept();
-                }
-                return;
             }
             return;
         }
 
-        // Handle escape - clear
+        // Handle enter - commit and pass through
+        if (key.check(FcitxKey_Return)) {
+            if (!vigo_is_empty(engine_)) {
+                commit();
+            }
+            return;
+        }
+
+        // Handle escape - clear buffer
         if (key.check(FcitxKey_Escape)) {
             if (!vigo_is_empty(engine_)) {
                 reset();
@@ -72,42 +87,75 @@ public:
         }
 
         // Handle regular characters
-        if (key.isSimple()) {
-            auto chr = static_cast<uint32_t>(key.sym());
-            if (chr >= 0x20 && chr < 0x7f) {
-                vigo_feed(engine_, chr);
-                updatePreedit();
-                event.filterAndAccept();
-                return;
+        auto sym = key.sym();
+        uint32_t chr = 0;
+
+        if (sym >= FcitxKey_A && sym <= FcitxKey_Z) {
+            chr = sym;
+        } else if (sym >= FcitxKey_a && sym <= FcitxKey_z) {
+            if (key.states().test(fcitx::KeyState::Shift)) {
+                chr = sym - FcitxKey_a + FcitxKey_A;
+            } else {
+                chr = sym;
             }
+        } else if (sym >= FcitxKey_0 && sym <= FcitxKey_9) {
+            chr = sym;
+        } else if (sym >= 0x20 && sym < 0x7f) {
+            // Punctuation - commit current buffer first, then pass through
+            if (!vigo_is_empty(engine_)) {
+                commit();
+            }
+            return;
+        }
+
+        if (chr != 0) {
+            vigo_feed(engine_, chr);
+            updatePreedit();
+            event.filterAndAccept();
+            return;
         }
     }
 
     void commit() {
         char *output = vigo_commit(engine_);
-        if (output) {
+        if (output && output[0] != '\0') {
+            // Clear preedit BEFORE committing to avoid duplicate text
+            auto &panel = ic_->inputPanel();
+            panel.setClientPreedit(fcitx::Text());
+            panel.setPreedit(fcitx::Text());
+            ic_->updatePreedit();
+
             ic_->commitString(output);
+        }
+        if (output) {
             vigo_free_string(output);
         }
-        updatePreedit();
+        ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
 
     void updatePreedit() {
+        auto &panel = ic_->inputPanel();
+        panel.reset();
+
         fcitx::Text preedit;
-        
         char *output = vigo_get_output(engine_);
         if (output && output[0] != '\0') {
-            preedit.append(output, fcitx::TextFormatFlag::Underline);
+            bool useClient = ic_->capabilityFlags().test(
+                fcitx::CapabilityFlag::Preedit);
+            preedit.append(output,
+                useClient ? fcitx::TextFormatFlag::Underline
+                          : fcitx::TextFormatFlag::NoFlag);
+            preedit.setCursor(preedit.textLength());
+            if (useClient) {
+                panel.setClientPreedit(preedit);
+            } else {
+                panel.setPreedit(preedit);
+            }
         }
         if (output) {
             vigo_free_string(output);
         }
 
-        if (ic_->capabilityFlags().test(fcitx::CapabilityFlag::Preedit)) {
-            ic_->inputPanel().setClientPreedit(preedit);
-        } else {
-            ic_->inputPanel().setPreedit(preedit);
-        }
         ic_->updatePreedit();
         ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
@@ -119,8 +167,16 @@ private:
 
 class VigoEngine : public fcitx::InputMethodEngineV2 {
 public:
-    VigoEngine(fcitx::Instance *instance) : instance_(instance) {
+    VigoEngine(fcitx::Instance *instance) : instance_(instance),
+        factory_([](fcitx::InputContext &ic) { return new VigoState(&ic); }) {
         instance->inputContextManager().registerProperty("vigoState", &factory_);
+    }
+
+    std::vector<fcitx::InputMethodEntry> listInputMethods() override {
+        std::vector<fcitx::InputMethodEntry> result;
+        result.emplace_back("vigo", "Vietnamese (Vigo Telex)", "vi", "vigo");
+        result.back().setIcon("vigo").setLabel("VI");
+        return result;
     }
 
     void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -149,7 +205,7 @@ public:
 
 private:
     fcitx::Instance *instance_;
-    fcitx::FactoryFor<VigoState> factory_;
+    fcitx::LambdaInputContextPropertyFactory<VigoState> factory_;
 };
 
 class VigoAddonFactory : public fcitx::AddonFactory {
