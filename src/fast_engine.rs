@@ -535,4 +535,34 @@ mod tests {
         let mut e = FastEngine::telex();
         assert_eq!(type_seq(&mut e, "vieet"), "viêt");
     }
+
+    // ── Task 3 tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_telex_tones() {
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "as"), "á");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "af"), "à");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "ar"), "ả");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "ax"), "ã");
+        e.clear();
+        assert_eq!(type_seq(&mut e, "aj"), "ạ");
+    }
+
+    #[test]
+    fn test_tone_on_multi_vowel() {
+        // "vieetj" -> "việt": tone on ê (the modified vowel)
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "vieetj"), "việt");
+    }
+
+    #[test]
+    fn test_tone_placement_closed_syllable() {
+        // "toois" -> "tối": circumflex on o, tone on ô
+        let mut e = FastEngine::telex();
+        assert_eq!(type_seq(&mut e, "toois"), "tối");
+    }
 }
