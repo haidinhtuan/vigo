@@ -42,30 +42,30 @@ Incremental — character-by-character engine:
 
 ### Vigo vs uvie-rs (Rust, Criterion)
 
-Incremental feed — both engines use a `feed(char)` API, direct comparison:
+Incremental feed — both engines use a `feed(char)` API with per-word commit, direct comparison:
 
-| Input | Vigo FastEngine | Vigo SyllableEngine | uvie-rs | Fast vs Syllable |
-|-------|----------------|-------------------|---------|-----------------|
-| simple word (`vieetj`) | 374 ns | 1.55 µs | **277 ns** | **4.1x faster** |
-| medium word (`thuwowngf`) | 857 ns | 1.99 µs | **571 ns** | **2.3x faster** |
-| short sentence (2 words) | 606 ns | 2.68 µs | **316 ns** | **4.4x faster** |
-| medium sentence (8 words) | 20.3 µs | 31.5 µs | **1.71 µs** | **1.6x faster** |
-| long sentence (24 words) | 86.5 µs | 169 µs | **5.49 µs** | **1.9x faster** |
+| Input | Vigo FastEngine | uvie-rs | Winner |
+|-------|----------------|---------|--------|
+| simple word (`vieetj`) | **258 ns** | 274 ns | **Vigo 1.06x** |
+| medium word (`thuwowngf`) | 578 ns | **521 ns** | uvie 1.11x |
+| short sentence (2 words) | **209 ns** | 290 ns | **Vigo 1.39x** |
+| medium sentence (8 words) | **1.46 µs** | 1.65 µs | **Vigo 1.13x** |
+| long sentence (24 words) | **4.59 µs** | 5.21 µs | **Vigo 1.14x** |
 
-FastEngine is 2–4x faster than SyllableEngine with zero heap allocations per keystroke. uvie-rs is still faster for single-word inputs (~1.3–1.5x); the gap widens for multi-word inputs because uvie-rs commits each word incrementally while FastEngine re-renders the entire raw buffer from scratch on every keystroke.
+FastEngine wins 4 out of 5 cases against uvie-rs. Both engines commit per word (clear on space). FastEngine uses O(1) byte-indexed action lookup and zero heap allocations per keystroke.
 
-Batch transform (Vigo `transform_buffer` vs uvie-rs feed loop):
+Batch transform (Vigo `transform_buffer` vs FastEngine vs uvie-rs feed loop):
 
-| Input | Vigo | uvie-rs | uvie faster by |
-|-------|------|---------|----------------|
-| simple word | 423 ns | 267 ns | **1.6x** |
-| medium word | 628 ns | 520 ns | **1.2x** |
-| complex word (`nghieeeng`) | **229 ns** | 434 ns | 0.5x (Vigo wins) |
-| short sentence | 639 ns | 291 ns | **2.2x** |
-| medium sentence | 3.14 µs | 1.69 µs | **1.9x** |
-| long sentence | 9.55 µs | 5.31 µs | **1.8x** |
+| Input | Vigo batch | FastEngine | uvie-rs |
+|-------|-----------|-----------|---------|
+| simple word | 412 ns | **244 ns** | 261 ns |
+| medium word | 609 ns | 570 ns | **512 ns** |
+| complex word (`nghieeeng`) | **222 ns** | 324 ns | 435 ns |
+| short sentence | 602 ns | 318 ns | **285 ns** |
+| medium sentence | 2.84 µs | 9.59 µs | **1.62 µs** |
+| long sentence | 8.59 µs | 50.1 µs | **5.05 µs** |
 
-> `FastEngine` uses a zero-allocation, stack-only render pipeline (32-byte raw buffer, 128-byte UTF-8 output). Both FastEngine and uvie-rs have zero per-keystroke heap allocations. uvie-rs is faster for multi-word inputs because it maintains per-syllable incremental caches; FastEngine and SyllableEngine both rebuild from the full raw input on every keystroke. In batch mode the gap between Vigo and uvie-rs narrows to ~1.5–2x.
+> `FastEngine` uses a zero-allocation, stack-only render pipeline (32-byte raw buffer, 128-byte UTF-8 output) with O(1) const action lookup tables. For single-word inputs, FastEngine matches or beats uvie-rs. For multi-word batch inputs (no space handling), FastEngine re-renders the entire raw buffer on every keystroke — use incremental mode with per-word commit for sentence-length inputs.
 
 ### Vigo vs Unikey (C++, 100k iterations)
 
@@ -85,7 +85,7 @@ Vigo is called through C FFI (`libvigo.so`); Unikey uses its native C++ API.
 | Engine | Medium sentence | Description |
 |--------|----------------|-------------|
 | Legacy Engine | ~15 µs | First-generation table-lookup engine |
-| FastEngine | ~20 µs | Zero-allocation, stack-only CVC engine |
+| FastEngine | ~1.5 µs | Zero-allocation, stack-only CVC engine with O(1) lookup |
 | SyllableEngine | ~32 µs | CVC-based engine used by fcitx5 addon |
 | SmartEngine | ~295 µs | Full pipeline with validation + prediction |
 
